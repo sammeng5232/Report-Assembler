@@ -2108,17 +2108,26 @@ def add_heading(doc, level: int, text: str, fc: FontConfig = None):
 
 
 def add_body_paragraph(doc, block: Block, fc: FontConfig = None):
-    """添加正文段落，按 FontConfig 统一字体/字号/颜色/缩进/行距。"""
+    """添加正文段落，按 FontConfig 统一字体/字号/颜色/缩进/行距。
+
+    无编号加粗小标题（如「三驾马车表现」）不首行缩进。
+    """
     if fc is None:
         fc = FontConfig()
+    mini = is_unnumbered_subheading(block.text, block.runs)
     p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(4)
+    p.paragraph_format.space_after = Pt(4 if not mini else 6)
+    p.paragraph_format.space_before = Pt(6 if mini else 0)
     p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
-    _set_first_line_indent(p, chars=fc.body_indent, body_size_pt=fc.body_size)
+    if not mini:
+        _set_first_line_indent(p, chars=fc.body_indent, body_size_pt=fc.body_size)
     if block.para_format:
         _apply_para_format(p, block.para_format)
         # 行距以格式设置为准（模板或手动）
         p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
+    if mini:
+        # 覆盖源段落可能带来的缩进
+        _clear_first_line_indent(p)
 
     if block.runs:
         for ri in block.runs:
@@ -2263,6 +2272,75 @@ def is_tbl_caption(text: str) -> bool:
     return bool(RE_TBL_CAPTION.match(text.strip()))
 
 
+# 无编号小标题：句末标点（有则更像正文短句）
+_RE_MINI_HEAD_END_PUNCT = re.compile(r"[。！？；;…：:]$")
+
+
+def is_unnumbered_subheading(text: str, runs: Optional[List[RunInfo]] = None) -> bool:
+    """判断是否为「无编号加粗小标题」（如「三驾马车表现」「价格运行」）。
+
+    输入材料里常见：Normal 样式 + 全文加粗 + 短句 + 无章节编号，
+    语义是小标题但未用 Heading 样式。若当正文写会带上首行缩进，版式错误。
+
+    启发式（偏保守，减少误伤短句正文）：
+      - 长度 2–18 字
+      - 不以句末标点收尾
+      - 不是图/表题注
+      - 不是已识别的编号章节头（第N章 / 2.1.1 等）
+      - 可见文字中加粗占比 ≥ 90%（无 runs 或加粗信息不足则不判）
+    """
+    t = (text or "").strip()
+    if not t or len(t) < 2 or len(t) > 18:
+        return False
+    if is_fig_caption(t) or is_tbl_caption(t):
+        return False
+    if _RE_MINI_HEAD_END_PUNCT.search(t):
+        return False
+    # 已是编号章节标题文本 → 通常会成为 section 边界，不当作正文小标题启发式
+    try:
+        if identify_heading(t) is not None:
+            return False
+    except Exception:
+        pass
+    if not runs:
+        return False
+    total = 0
+    bold_c = 0
+    for ri in runs:
+        s = ri.text or ""
+        if not s.strip():
+            continue
+        n = len(s)
+        total += n
+        if ri.bold is True:
+            bold_c += n
+    if total <= 0:
+        return False
+    return (bold_c / total) >= 0.90
+
+
+def _clear_first_line_indent(paragraph) -> None:
+    """清除首行缩进（字符单位 + 磅值）。"""
+    try:
+        paragraph.paragraph_format.first_line_indent = Pt(0)
+    except Exception:
+        pass
+    pPr = paragraph._element.find(qn("w:pPr"))
+    if pPr is None:
+        return
+    ind = pPr.find(qn("w:ind"))
+    if ind is None:
+        return
+    for attr in ("firstLine", "firstLineChars"):
+        try:
+            if qn(f"w:{attr}") in ind.attrib:
+                del ind.attrib[qn(f"w:{attr}")]
+        except Exception:
+            pass
+    ind.set(qn("w:firstLine"), "0")
+    ind.set(qn("w:firstLineChars"), "0")
+
+
 def is_table_ref(text: str) -> bool:
     """旧接口保留：判断是否为表引用行。"""
     t = text.strip()
@@ -2343,14 +2421,19 @@ def add_body_with_xref(doc, block: Block, caption_index: CaptionIndex,
     """
     if fc is None:
         fc = FontConfig()
+    mini = is_unnumbered_subheading(block.text, block.runs)
     p = doc.add_paragraph()
-    p.paragraph_format.space_after = Pt(4)
+    p.paragraph_format.space_after = Pt(4 if not mini else 6)
+    p.paragraph_format.space_before = Pt(6 if mini else 0)
     p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
-    _set_first_line_indent(p, chars=fc.body_indent, body_size_pt=fc.body_size)
+    if not mini:
+        _set_first_line_indent(p, chars=fc.body_indent, body_size_pt=fc.body_size)
     # F06：应用保留的段落格式（覆盖默认），但行距以格式设置为准
     if block.para_format:
         _apply_para_format(p, block.para_format)
         p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
+    if mini:
+        _clear_first_line_indent(p)
 
     for ri in (block.runs if block.runs else [RunInfo(text=block.text)]):
         _add_run_with_xref(p, ri, caption_index,
