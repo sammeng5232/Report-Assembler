@@ -1738,49 +1738,98 @@ def _add_bookmark_end(paragraph, bm_id: int):
     paragraph._element.append(bm_end)
 
 
-def _add_field_simple(paragraph, instr: str, placeholder: str = "",
-                      size=None, bold=False):
-    """在段落末尾追加一个 w:fldSimple 域（SEQ / REF 等）。
-
-    instr       : 域指令文本，如 'SEQ Figure \\* ARABIC'
-    placeholder : 域结果显示前的占位文本
-    """
-    # F13：size 默认 None，运行时读取当前 SIZE_BODY（避免定义时绑定陈旧值）
+def _run_rpr_xml(size=None, bold: bool = False, font_name: Optional[str] = None):
+    """构造 w:rPr（字号/字体/加粗），用于域指令与结果 run，保证编号与题注同字号。"""
     if size is None:
         size = SIZE_BODY
-    fld = OxmlElement('w:fldSimple')
-    fld.set(qn('w:instr'), instr)
+    if font_name is None:
+        font_name = FONT_BODY
+    try:
+        half_pt = str(int(round(float(size.pt) * 2)))
+    except Exception:
+        half_pt = "20"  # 10pt
+    rpr = OxmlElement("w:rPr")
+    rfonts = OxmlElement("w:rFonts")
+    rfonts.set(qn("w:eastAsia"), font_name)
+    rfonts.set(qn("w:ascii"), font_name)
+    rfonts.set(qn("w:hAnsi"), font_name)
+    rpr.append(rfonts)
+    sz = OxmlElement("w:sz")
+    sz.set(qn("w:val"), half_pt)
+    rpr.append(sz)
+    sz_cs = OxmlElement("w:szCs")
+    sz_cs.set(qn("w:val"), half_pt)
+    rpr.append(sz_cs)
+    if bold:
+        rpr.append(OxmlElement("w:b"))
+    return rpr
 
-    if placeholder:
-        r = OxmlElement('w:r')
-        rpr = OxmlElement('w:rPr')
 
-        rfonts = OxmlElement('w:rFonts')
-        rfonts.set(qn('w:eastAsia'), FONT_BODY)
-        rfonts.set(qn('w:ascii'), FONT_BODY)
-        rfonts.set(qn('w:hAnsi'), FONT_BODY)
-        rpr.append(rfonts)
+def _add_field_simple(paragraph, instr: str, placeholder: str = "",
+                      size=None, bold=False, font_name: Optional[str] = None):
+    """在段落末尾追加复杂域（fldChar begin/instr/separate/result/end）。
 
-        sz = OxmlElement('w:sz')
-        sz.set(qn('w:val'), str(int(size.pt * 2)))
-        rpr.append(sz)
+    使用复杂域而非 w:fldSimple，便于在结果 run 上写入字号/字体，
+    避免 Word 更新域后编号变成正文默认字号（比题注大一号）。
 
-        szCs = OxmlElement('w:szCs')
-        szCs.set(qn('w:val'), str(int(size.pt * 2)))
-        rpr.append(szCs)
+    instr       : 域指令，如 'SEQ Figure \\* ARABIC'
+    placeholder : 域未更新时的占位文本（及初始结果）
+    """
+    if size is None:
+        size = SIZE_BODY
+    if font_name is None:
+        font_name = FONT_BODY
 
-        if bold:
-            rpr.append(OxmlElement('w:b'))
+    def _append_run(build_fn):
+        r = paragraph.add_run()
+        build_fn(r)
+        # 每个域相关 run 都带同一 rPr，更新域后字号仍一致
+        rpr = r._element.get_or_add_rPr()
+        # 清空后写入标准 rPr 子节点
+        for child in list(rpr):
+            rpr.remove(child)
+        new_rpr = _run_rpr_xml(size=size, bold=bold, font_name=font_name)
+        for child in list(new_rpr):
+            rpr.append(child)
+        return r
 
-        r.append(rpr)
+    # begin
+    r1 = _append_run(lambda r: None)
+    fld_begin = OxmlElement("w:fldChar")
+    fld_begin.set(qn("w:fldCharType"), "begin")
+    r1._element.append(fld_begin)
 
-        t = OxmlElement('w:t')
-        t.text = placeholder
-        r.append(t)
-        fld.append(r)
+    # instrText
+    r2 = _append_run(lambda r: None)
+    instr_el = OxmlElement("w:instrText")
+    instr_el.set(qn("xml:space"), "preserve")
+    instr_el.text = instr
+    r2._element.append(instr_el)
 
-    paragraph._element.append(fld)
-    return fld
+    # separate
+    r3 = _append_run(lambda r: None)
+    fld_sep = OxmlElement("w:fldChar")
+    fld_sep.set(qn("w:fldCharType"), "separate")
+    r3._element.append(fld_sep)
+
+    # result / placeholder
+    r4 = paragraph.add_run(placeholder or "")
+    rpr4 = r4._element.get_or_add_rPr()
+    for child in list(rpr4):
+        rpr4.remove(child)
+    new_rpr4 = _run_rpr_xml(size=size, bold=bold, font_name=font_name)
+    for child in list(new_rpr4):
+        rpr4.append(child)
+    r4.font.size = size
+    r4.font.name = font_name
+    r4.font.bold = bool(bold)
+
+    # end
+    r5 = _append_run(lambda r: None)
+    fld_end = OxmlElement("w:fldChar")
+    fld_end.set(qn("w:fldCharType"), "end")
+    r5._element.append(fld_end)
+    return r4
 
 
 # ---------------------------------------------------------------------------
@@ -2229,7 +2278,8 @@ def is_fig_ref(text: str) -> bool:
 def add_caption(doc, block: Block, caption_type: str, seq_num: int):
     """添加居中的图表题注，使用 SEQ 域自动编号 + 书签。
 
-    结构：[bookmarkStart] "图 " [SEQ域] [bookmarkEnd] "  描述文字"
+    结构：[bookmarkStart] "图" [SEQ域] "：" [bookmarkEnd] "描述文字"
+    显示效果：图1：描述…（全角冒号；编号与标签同为题注字号 SIZE_CAPTION）
 
     书签包裹 SEQ 域结果，使正文 REF 域可引用题注编号。
     """
@@ -2245,31 +2295,37 @@ def add_caption(doc, block: Block, caption_type: str, seq_num: int):
     else:
         m = RE_TBL_CAPTION.match(block.text.strip())
     description = m.group(2).strip() if m and m.group(2) else ""
+    # 描述若仍以冒号开头（源文残留），去掉以免「图1：：xxx」
+    if description.startswith(("：", ":", "—", "-", ".")):
+        description = description.lstrip("：:.—-–—．. ").strip()
 
     seq_name = "Figure" if caption_type == "图" else "Table"
     bookmark_name = f"_Ref_{caption_type}_{seq_num}"
 
-    # 1. 题注标签（"图 " / "表 "）
-    r = p.add_run(caption_type + " ")
+    # 1. 题注标签（"图" / "表"，与编号紧挨）
+    r = p.add_run(caption_type)
     _set_run_font(r, FONT_BODY, SIZE_CAPTION)
 
     # 2. 书签开始
     bm_id = _add_bookmark_start(p, bookmark_name)
 
-    # 3. SEQ 域（自动编号）
+    # 3. SEQ 域（自动编号，字号与题注一致）
     _add_field_simple(
         p,
-        f'SEQ {seq_name} \\* ARABIC',
+        f"SEQ {seq_name} \\* ARABIC",
         placeholder=str(seq_num),
         size=SIZE_CAPTION,
+        font_name=FONT_BODY,
     )
 
     # 4. 书签结束
     _add_bookmark_end(p, bm_id)
 
-    # 5. 描述文字
+    # 5. 全角冒号 + 描述
+    r = p.add_run("：")
+    _set_run_font(r, FONT_BODY, SIZE_CAPTION)
     if description:
-        r = p.add_run("  " + description)
+        r = p.add_run(description)
         _set_run_font(r, FONT_BODY, SIZE_CAPTION)
 
     return p
@@ -2999,13 +3055,15 @@ def aggregate(
                 if target_sid in parsed:
                     log_msg(f"      ⚠️ 新增章节编号冲突：{target_sid} 已存在，跳过")
                     continue
-                title = str(ov.get("title") or "未命名").strip() or "未命名"
+                # 注意：不可用 title= 赋值，会遮蔽 aggregate 参数「报告主标题」，
+                # 导致封面主标题被最后一次新增章节标题覆盖。
+                new_title = str(ov.get("title") or "未命名").strip() or "未命名"
                 level = int(ov.get("level") or (target_sid.count(".") + 1))
                 if not (1 <= level <= 6):
                     level = min(6, max(1, target_sid.count(".") + 1))
                 new_sec = Section(
                     section_id=target_sid,
-                    title=title,
+                    title=new_title,
                     blocks=[],
                     source_files=["(手动新增)"],
                     merge_count=1,
@@ -3020,7 +3078,7 @@ def aggregate(
                 if old_sid != target_sid:
                     rename_map[old_sid] = target_sid
                 created_n += 1
-                log_msg(f"      新增空标题：{target_sid}  {title!r}（level={level}，无正文）")
+                log_msg(f"      新增空标题：{target_sid}  {new_title!r}（level={level}，无正文）")
                 continue
             if sec is None:
                 continue
@@ -3273,6 +3331,7 @@ def aggregate(
     log_msg(f"      页脚：页码（第 X 页）")
 
     log_msg(f"[3/5] 拼装封面")
+    log_msg(f"      封面主标题（报告主标题）：{title!r}")
     add_cover(doc, period=period, title=title, subtitle=subtitle, org=org, date=date)
 
     log_msg(f"[4/5] 插入目录与正文")

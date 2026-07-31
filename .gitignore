@@ -25,3 +25,8 @@ desktop.ini
 # Local secrets / temp
 *.log
 .insurance-report-*/
+
+# Word lock files
+~$*.docx
+~$*.doc
+
