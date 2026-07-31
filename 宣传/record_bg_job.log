@@ -1,0 +1,14 @@
+mode: BACKGROUND(不抢桌面)
+ffmpeg: C:\Users\mengz\AppData\Local\Microsoft\WinGet\Packages\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\ffmpeg-8.1.2-full_build\bin\ffmpeg.EXE
+output: C:\Users\mengz\Desktop\报告合成\宣传\保险报告生成器_操作演示.mp4
+start app…
+hwnd=2690758, capturing off-screen window…
+window capture 1220x820 @ 8fps for ~80s → C:\Users\mengz\Desktop\报告合成\宣传\保险报告生成器_操作演示.mp4
+demo done + 4s tail, stop capture
+wrote 121 frames, ffmpeg code=0
+duration_sec≈ 15.125000
+OK: C:\Users\mengz\Desktop\报告合成\宣传\保险报告生成器_操作演示.mp4 (0.3 MB)
+demo outputs:
+C:\Users\mengz\Desktop\报告合成\演示输出\保险行业季度调研报告_终版_2026年第三季度.docx
+C:\Users\mengz\Desktop\报告合成\演示输出\保险行业季度调研报告_终版_2026年第三季度.pdf
+

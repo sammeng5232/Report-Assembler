@@ -1,0 +1,352 @@
+% !TEX program = xelatex
+% 保险行业季度调研报告生成器 — Beamer 宣传演示
+% 编译：xelatex 保险报告生成器_Beamer宣传.tex （编译两遍）
+\documentclass[aspectratio=169,10pt,UTF8]{ctexbeamer}
+
+\usetheme{Madrid}
+\usecolortheme{whale}
+\usefonttheme{professionalfonts}
+\setbeamertemplate{navigation symbols}{}
+\setbeamertemplate{footline}[frame number]
+
+% 品牌色（与桌面软件深蓝风格一致）
+\definecolor{BrandBlue}{HTML}{17365D}
+\definecolor{BrandLight}{HTML}{EAF0F7}
+\definecolor{BrandAccent}{HTML}{2E75B6}
+\definecolor{BrandGreen}{HTML}{375623}
+\definecolor{BrandWarn}{HTML}{C00000}
+
+\setbeamercolor{structure}{fg=BrandBlue}
+\setbeamercolor{palette primary}{bg=BrandBlue,fg=white}
+\setbeamercolor{palette secondary}{bg=BrandAccent,fg=white}
+\setbeamercolor{palette tertiary}{bg=BrandBlue,fg=white}
+\setbeamercolor{title}{fg=BrandBlue}
+\setbeamercolor{frametitle}{bg=BrandBlue,fg=white}
+\setbeamercolor{block title}{bg=BrandBlue,fg=white}
+\setbeamercolor{block body}{bg=BrandLight,fg=black}
+\setbeamercolor{block title alerted}{bg=BrandWarn,fg=white}
+\setbeamercolor{block title example}{bg=BrandGreen,fg=white}
+\setbeamercolor{item}{fg=BrandAccent}
+
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning}
+\usepackage{hyperref}
+\hypersetup{colorlinks=true,linkcolor=BrandBlue,urlcolor=BrandAccent}
+
+\title{\textbf{保险行业季度调研报告生成器}}
+\subtitle{多源 DOCX 一键合成 · 智能章节 · 可审可调 · 终版交付}
+\author{保险行业研究工具}
+\institute{桌面端 · Windows / macOS}
+\date{2026}
+
+\begin{document}
+
+% =====================================================================
+\begin{frame}[plain]
+  \vfill
+  \begin{center}
+    {\color{BrandBlue}\Huge\bfseries 保险行业季度调研报告生成器}\\[0.6em]
+    {\Large 把多部门材料，变成一份可交付的季度终版}\\[1.2em]
+    \begin{tikzpicture}
+      \node[fill=BrandLight,rounded corners=6pt,inner sep=10pt,text width=0.82\textwidth,align=center] {
+        \large 输入多份 DOCX \quad$\rightarrow$\quad 预览与调序 \quad$\rightarrow$\quad 导出 DOCX / PDF
+      };
+    \end{tikzpicture}\\[1.4em]
+    {\normalsize 桌面图形界面 · 格式模板复用 · 跨平台}
+  \end{center}
+  \vfill
+  \begin{flushright}
+    \small 2026 \quad|\quad 保险行业研究工具
+  \end{flushright}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{为什么需要它？}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{block}{传统方式的痛点}
+        \begin{itemize}
+          \item 各部门各自写一节，手工粘贴合并
+          \item 标题层级、编号、字体不统一
+          \item 目录、题注、页码反复返工
+          \item 季度切换时结构难对齐历史终版
+          \item 一处改编号，全文引用易出错
+        \end{itemize}
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{exampleblock}{用生成器之后}
+        \begin{itemize}
+          \item \textbf{多文件自动汇总} 到统一报告
+          \item \textbf{章节识别 + 预览编辑} 可控
+          \item \textbf{格式模板} 对齐上季终版
+          \item 一键导出 \textbf{DOCX / PDF}
+          \item 守恒校验，减少静默丢内容
+        \end{itemize}
+      \end{exampleblock}
+    \end{column}
+  \end{columns}
+  \vspace{0.8em}
+  \centering
+  \textit{「材料还是各部门写，终版由工具按规则组装。」}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{一句话定位}
+  \vspace{1.2em}
+  \begin{center}
+    \begin{tikzpicture}
+      \node[
+        fill=BrandBlue, text=white, rounded corners=10pt,
+        inner sep=18pt, text width=0.88\textwidth, align=center
+      ] {
+        \Large\bfseries
+        面向保险行业季度调研场景的\\[0.35em]
+        多源 Word 报告自动合成桌面工具
+      };
+    \end{tikzpicture}
+  \end{center}
+  \vspace{1.2em}
+  \begin{columns}[T]
+    \begin{column}{0.32\textwidth}
+      \centering
+      {\color{BrandAccent}\Large\bfseries 合}\\[0.3em]
+      多份输入 DOCX\\合并为结构清晰的终稿
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \centering
+      {\color{BrandAccent}\Large\bfseries 控}\\[0.3em]
+      章节预览、改名、\\调序、改层级
+    \end{column}
+    \begin{column}{0.32\textwidth}
+      \centering
+      {\color{BrandAccent}\Large\bfseries 齐}\\[0.3em]
+      字体、页眉、目录\\与上季终版对齐
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{核心能力一览}
+  \begin{itemize}
+    \item \textbf{智能章节识别}：支持「第N章 / 2.1 / 2.1.1」等多级编号与 Word 标题样式
+    \item \textbf{同号合并}：多文件同 section 自动汇总，冲突可在预览中发现
+    \item \textbf{人工可控}：预览表中改标题、编号、层级，并支持拖拽式调序
+    \item \textbf{格式模板}：可选历史上季终版，复用章节顺序、标题与字体风格
+    \item \textbf{图文保真}：表格、图片、加粗等随内容迁移
+    \item \textbf{题注与引用}：图/表题注与交叉引用尽量在合成时理顺
+    \item \textbf{一键交付}：输出 DOCX；本机有 Word / LibreOffice 时可出 PDF
+  \end{itemize}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{三步出报告}
+  \begin{enumerate}
+    \item[\textcolor{BrandBlue}{\textbf{1}}]
+      \textbf{添加材料}\\[0.2em]
+      {\small 导入本季度各部门 DOCX；可选加载「上季终版」作格式模板}
+      \vspace{0.55em}
+    \item[\textcolor{BrandBlue}{\textbf{2}}]
+      \textbf{预览与修订}\\[0.2em]
+      {\small 查看识别出的章节树；修改标题/编号/层级；调整顺序}
+      \vspace{0.55em}
+    \item[\textcolor{BrandBlue}{\textbf{3}}]
+      \textbf{生成交付}\\[0.2em]
+      {\small 填写报告周期、标题、单位、页眉；导出终版 DOCX（及 PDF）}
+  \end{enumerate}
+  \vspace{0.8em}
+  \begin{block}{典型场景}
+    用 \textbf{2026Q2 终版} 作模板，放入 \textbf{2026Q3 六份输入}，预览确认后一键生成第三季度终版。
+  \end{block}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{界面与参数（桌面端）}
+  \begin{columns}[T]
+    \begin{column}{0.52\textwidth}
+      \begin{itemize}
+        \item 原生图形界面（Tk）
+        \item 左侧：模板、报告参数、页眉、字体
+        \item 右侧：文件列表、章节预览表、日志
+        \item 预览后才允许「生成」，避免误点
+        \item 生成完成后可直接打开结果
+      \end{itemize}
+    \end{column}
+    \begin{column}{0.45\textwidth}
+      \begin{exampleblock}{可配置项}
+        \small
+        \begin{itemize}
+          \item 周期 / 主副标题 / 单位 / 日期
+          \item 页眉：标题·单位·日期·周期
+          \item 一/二/三级标题与正文字体字号
+          \item 正文首行缩进
+          \item 是否启用模板标题
+        \end{itemize}
+      \end{exampleblock}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{质量与可靠性}
+  \begin{columns}[T]
+    \begin{column}{0.48\textwidth}
+      \begin{block}{内容守恒}
+        \begin{itemize}
+          \item 输入块数与写出块数校验
+          \item 坏文件隔离，不拖垮整批
+          \item 合并冲突在预览中可见
+        \end{itemize}
+      \end{block}
+      \vspace{0.5em}
+      \begin{block}{包完整性}
+        \begin{itemize}
+          \item 生成后校验 DOCX 内部关系
+          \item 图片/超链接尽量保真复制
+        \end{itemize}
+      \end{block}
+    \end{column}
+    \begin{column}{0.48\textwidth}
+      \begin{alertblock}{智能防误识别}
+        正文中的「\textbf{10年期国债}」「\textbf{7月保费}」「\textbf{2026年…}」
+        \textbf{不会}再被误判成
+        「第十章 / 第七章 / 第2026章」。
+        \vspace{0.4em}
+
+        {\small 一级编号须有分隔符；过滤年份号与「N年/N月」粘连正文。}
+      \end{alertblock}
+    \end{column}
+  \end{columns}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{格式模板：季度间「长得像」}
+  \centering
+  \begin{tikzpicture}[
+    box/.style={draw=BrandBlue, rounded corners, fill=BrandLight,
+      align=center, inner sep=8pt, text width=2.6cm, minimum height=1.5cm},
+    arr/.style={->, thick, BrandAccent}
+  ]
+    \node[box] (q2) {\textbf{Q2 终版}\\格式模板};
+    \node[box, right=1.6cm of q2] (in) {\textbf{Q3 输入}\\多份 DOCX};
+    \node[box, right=1.6cm of in] (out) {\textbf{Q3 终版}\\结构对齐};
+    \draw[arr] (q2) -- (in);
+    \draw[arr] (in) -- (out);
+  \end{tikzpicture}
+
+  \vspace{1em}
+  \begin{itemize}
+    \item 模板提供：\textbf{章节顺序}、\textbf{标题措辞}、\textbf{字体层级风格}
+    \item 输入提供：本季最新正文、图表与数据
+    \item 可开关「匹配章节时优先使用模板标题」
+    \item 仍保留人工预览修订权，模板不是黑盒
+  \end{itemize}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{跨平台交付}
+  \begin{table}
+    \centering
+    \renewcommand{\arraystretch}{1.25}
+    \begin{tabular}{>{\bfseries}l ll}
+      \toprule
+      平台 & 使用方式 & PDF \\
+      \midrule
+      Windows & 双击 \texttt{保险报告生成器.exe} & 本机 Word（推荐） \\
+      macOS & \texttt{run\_mac.command} 或打包 .app & Word / LibreOffice \\
+      源码 & \texttt{工具/} + Python 依赖 & 同上多后端 \\
+      \bottomrule
+    \end{tabular}
+  \end{table}
+  \vspace{0.6em}
+  \begin{block}{说明}
+    \begin{itemize}
+      \item Windows 安装包与 \texttt{\_internal} 需同目录放置
+      \item Mac 无法直接运行 \texttt{.exe}；请用源码或在 Mac 上打 \texttt{.app}
+      \item 无 Word 时仍可稳定导出 \textbf{DOCX}，PDF 可后补
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{适合谁用？}
+  \begin{itemize}
+    \item \textbf{研究团队}：每季度多部门供稿、需统一终版
+    \item \textbf{报告统筹人}：要控结构、标题与交付节奏
+    \item \textbf{分析师}：专注写自己的章节，不必手工排全书
+    \item \textbf{质控同事}：预览阶段即可发现冲突与异常章节
+  \end{itemize}
+  \vspace{0.8em}
+  \begin{exampleblock}{不替代什么}
+    不替代业务判断与文字写作；替代的是\textbf{合并、编号、格式对齐、反复粘贴}这类机械劳动。
+  \end{exampleblock}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{价值总结}
+  \begin{columns}[T]
+    \begin{column}{0.33\textwidth}
+      \centering
+      {\color{BrandBlue}\Large\bfseries 更快}\\[0.4em]
+      从「手工拼一周」\\到「预览后一键出」
+    \end{column}
+    \begin{column}{0.33\textwidth}
+      \centering
+      {\color{BrandBlue}\Large\bfseries 更稳}\\[0.4em]
+      防伪章节、守恒校验\\坏文件隔离
+    \end{column}
+    \begin{column}{0.33\textwidth}
+      \centering
+      {\color{BrandBlue}\Large\bfseries 更齐}\\[0.4em]
+      模板对齐历史终版\\字体页眉统一
+    \end{column}
+  \end{columns}
+  \vspace{1.4em}
+  \begin{center}
+    \begin{tikzpicture}
+      \node[fill=BrandLight,rounded corners,inner sep=12pt,text width=0.9\textwidth,align=center] {
+        \large\textbf{同一套流程，服务每一个保险行业调研季度。}
+      };
+    \end{tikzpicture}
+  \end{center}
+\end{frame}
+
+% =====================================================================
+\begin{frame}{立即开始}
+  \begin{enumerate}
+    \item 打开文件夹中的 \textbf{保险报告生成器.exe}（Windows）
+    \item 或进入 \textbf{工具/}，按 \texttt{Mac使用说明.md} 在 Mac 运行
+    \item 准备本季输入 DOCX；可选指定上季终版为模板
+    \item 预览 $\rightarrow$ 微调 $\rightarrow$ 生成
+  \end{enumerate}
+  \vspace{0.9em}
+  \begin{block}{资源位置（示例）}
+    \small
+    \begin{itemize}
+      \item 程序与样例：本地「报告合成」目录
+      \item 源码：\texttt{工具/desktop\_app.py}、\texttt{report\_aggregator.py}
+      \item 远程：\url{https://github.com/JimLi0128/AI-MunichRe/tree/mzj}
+    \end{itemize}
+  \end{block}
+\end{frame}
+
+% =====================================================================
+\begin{frame}[plain]
+  \vfill
+  \begin{center}
+    {\color{BrandBlue}\Huge\bfseries 谢谢}\\[0.8em]
+    {\Large 保险行业季度调研报告生成器}\\[0.5em]
+    {\large 多源合成 · 章节可控 · 终版可交付}\\[1.4em]
+    \begin{tikzpicture}
+      \node[fill=BrandBlue,text=white,rounded corners=8pt,inner sep=12pt] {
+        \large 问题与反馈欢迎随时提出
+      };
+    \end{tikzpicture}
+  \end{center}
+  \vfill
+\end{frame}
+
+\end{document}

@@ -1,0 +1,6 @@
+# 保险报告生成器 — 跨平台依赖（Windows / macOS）
+python-docx>=1.1.0
+lxml>=4.9.0
+
+# 仅 Windows 需要（Word COM 导出 PDF）；macOS 请忽略或注释掉
+# pywin32>=306; sys_platform == "win32"
