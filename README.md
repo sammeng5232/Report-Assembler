@@ -4,6 +4,8 @@
 
 把各部门提交的分板块 Word 材料，自动识别章节、合并汇总，并套用统一版式，生成可交付的季度终版报告。
 
+本项目基于李诗舟的早期版本 [AI-MunichRe](https://github.com/JimLi0128/AI-MunichRe)。
+
 ---
 
 ## 功能概览

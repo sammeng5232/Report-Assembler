@@ -318,10 +318,101 @@ def _font_name_of_run(run) -> Optional[str]:
     return None
 
 
-def load_format_template(docx_path: str) -> FormatTemplate:
-    """从合成终版 DOCX 加载格式模板：章节顺序/标题/层级 + 字体 + 封面文案。
+def _color_of_run(run, para=None) -> Optional[str]:
+    """提取 run（或段落样式）的 RGB 颜色，返回 6 位十六进制（如 \"1F3864\"）。
 
-    不会复制模板正文内容，只抽取「怎么排、怎么写标题、用什么字体」。
+    主题色/自动色无法解析时返回 None，调用方保留 FontConfig 默认值。
+    """
+    def _rgb_to_hex(rgb) -> Optional[str]:
+        if rgb is None:
+            return None
+        try:
+            s = str(rgb).upper().replace("#", "")
+            if len(s) == 6 and all(c in "0123456789ABCDEF" for c in s):
+                return s
+        except Exception:
+            pass
+        return None
+
+    try:
+        if run is not None and run.font.color is not None:
+            hx = _rgb_to_hex(getattr(run.font.color, "rgb", None))
+            if hx:
+                return hx
+    except Exception:
+        pass
+    # 段落样式字色（Word 常把标题色放在 Heading 样式上，run 本身无色）
+    if para is not None and para.style is not None:
+        try:
+            st_color = para.style.font.color
+            if st_color is not None:
+                hx = _rgb_to_hex(getattr(st_color, "rgb", None))
+                if hx:
+                    return hx
+        except Exception:
+            pass
+    return None
+
+
+def _run_format_sample(
+    run, para=None
+) -> Tuple[Optional[str], Optional[float], Optional[bool], Optional[bool], Optional[bool], Optional[str]]:
+    """从 run（缺省时回退段落样式）采样 font / size / bold / italic / underline / color。"""
+    fname = _font_name_of_run(run) if run is not None else None
+    fsize = _pt_of_run(run) if run is not None else None
+    fbold = fitalic = funder = None
+    if run is not None:
+        try:
+            fbold = run.font.bold
+        except Exception:
+            fbold = None
+        try:
+            fitalic = run.font.italic
+        except Exception:
+            fitalic = None
+        try:
+            u = run.font.underline
+            funder = bool(u) if u is not None else None
+        except Exception:
+            funder = None
+    fcolor = _color_of_run(run, para=para)
+
+    # run 未显式指定时，尝试段落样式
+    if para is not None and para.style is not None:
+        st = para.style
+        try:
+            if not fname and st.font.name:
+                fname = st.font.name
+        except Exception:
+            pass
+        try:
+            if fsize is None and st.font.size is not None:
+                fsize = float(st.font.size.pt)
+        except Exception:
+            pass
+        try:
+            if fbold is None and st.font.bold is not None:
+                fbold = st.font.bold
+        except Exception:
+            pass
+        try:
+            if fitalic is None and st.font.italic is not None:
+                fitalic = st.font.italic
+        except Exception:
+            pass
+        try:
+            if funder is None and st.font.underline is not None:
+                funder = bool(st.font.underline)
+        except Exception:
+            pass
+    return fname, fsize, fbold, fitalic, funder, fcolor
+
+
+def load_format_template(docx_path: str) -> FormatTemplate:
+    """从合成终版 DOCX 加载格式模板：章节顺序/标题/层级 + 字体/字号/加粗/颜色 + 封面文案。
+
+    不会复制模板正文内容，只抽取「怎么排、怎么写标题、用什么字体颜色」。
+    启用模板合成时，这些版式设定严格覆盖手动格式设置。
     """
     if not os.path.isfile(docx_path):
         raise FileNotFoundError(f"模板文件不存在：{docx_path}")
@@ -333,7 +424,12 @@ def load_format_template(docx_path: str) -> FormatTemplate:
 
     h1_font = h2_font = h3_font = body_font = None
     h1_size = h2_size = h3_size = body_size = None
-    h1_bold = h2_bold = h3_bold = None
+    h1_bold = h2_bold = h3_bold = body_bold = None
+    h1_italic = h2_italic = h3_italic = body_italic = None
+    h1_underline = h2_underline = h3_underline = body_underline = None
+    h1_color = h2_color = h3_color = body_color = None
+    body_line_spacing = None
+    h1_captured = h2_captured = h3_captured = False
 
     def _plausible_sid(sid: str) -> bool:
         """过滤误识别（如把 2026年… 当成章节 2026）。"""
@@ -354,10 +450,39 @@ def load_format_template(docx_path: str) -> FormatTemplate:
             return False
         return True
 
+    def _sample_body(para) -> None:
+        nonlocal body_font, body_size, body_bold, body_italic, body_underline, body_color, body_line_spacing
+        if not para.runs:
+            return
+        rn = para.runs[0]
+        fname, fsize, fbold, fitalic, funder, fcolor = _run_format_sample(rn, para=para)
+        if body_font is None and fname:
+            body_font = fname
+        if body_size is None and fsize is not None:
+            body_size = fsize
+        if body_bold is None and fbold is not None:
+            body_bold = fbold
+        if body_italic is None and fitalic is not None:
+            body_italic = fitalic
+        if body_underline is None and funder is not None:
+            body_underline = funder
+        if body_color is None and fcolor:
+            body_color = fcolor
+        if body_line_spacing is None:
+            try:
+                ls = para.paragraph_format.line_spacing
+                if ls is not None:
+                    body_line_spacing = float(ls)
+            except Exception:
+                pass
+
     for para in doc.paragraphs:
         text = (para.text or "").strip()
         style_name = para.style.name if para.style else ""
-        is_heading_style = bool(style_name and style_name.startswith("Heading"))
+        is_heading_style = bool(
+            style_name
+            and (style_name.startswith("Heading") or style_name.startswith("标题"))
+        )
 
         # 封面：第一个 Heading 样式标题之前的非空段落
         if not first_heading_seen:
@@ -368,8 +493,7 @@ def load_format_template(docx_path: str) -> FormatTemplate:
                     if text not in ("目录", "目 录") and not text.startswith("TOC"):
                         cover_lines.append(text)
                 if body_font is None and para.runs and len(text) > 15:
-                    body_font = _font_name_of_run(para.runs[0]) or body_font
-                    body_size = _pt_of_run(para.runs[0]) or body_size
+                    _sample_body(para)
                 continue
 
         if not text:
@@ -389,8 +513,9 @@ def load_format_template(docx_path: str) -> FormatTemplate:
                 continue
         else:
             if body_font is None and para.runs and len(text) > 20:
-                body_font = _font_name_of_run(para.runs[0]) or body_font
-                body_size = _pt_of_run(para.runs[0]) or body_size
+                _sample_body(para)
+            elif body_color is None and para.runs and len(text) > 20:
+                _sample_body(para)
             continue
 
         if not sid or sid in seen:
@@ -400,17 +525,23 @@ def load_format_template(docx_path: str) -> FormatTemplate:
         lvl = level or (sid.count(".") + 1)
         specs.append(HeadingSpec(section_id=sid, title=title or "", level=lvl, parent=parent))
 
-        if para.runs:
-            rn = para.runs[0]
-            fname = _font_name_of_run(rn)
-            fsize = _pt_of_run(rn)
-            fbold = rn.font.bold
-            if lvl == 1 and h1_font is None:
-                h1_font, h1_size, h1_bold = fname, fsize, fbold
-            elif lvl == 2 and h2_font is None:
-                h2_font, h2_size, h2_bold = fname, fsize, fbold
-            elif lvl == 3 and h3_font is None:
-                h3_font, h3_size, h3_bold = fname, fsize, fbold
+        rn = para.runs[0] if para.runs else None
+        fname, fsize, fbold, fitalic, funder, fcolor = _run_format_sample(rn, para=para)
+        if lvl == 1 and not h1_captured:
+            h1_captured = True
+            h1_font, h1_size, h1_bold, h1_italic, h1_underline, h1_color = (
+                fname, fsize, fbold, fitalic, funder, fcolor
+            )
+        elif lvl == 2 and not h2_captured:
+            h2_captured = True
+            h2_font, h2_size, h2_bold, h2_italic, h2_underline, h2_color = (
+                fname, fsize, fbold, fitalic, funder, fcolor
+            )
+        elif lvl == 3 and not h3_captured:
+            h3_captured = True
+            h3_font, h3_size, h3_bold, h3_italic, h3_underline, h3_color = (
+                fname, fsize, fbold, fitalic, funder, fcolor
+            )
 
     fc = FontConfig()
     if h1_font:
@@ -419,22 +550,50 @@ def load_format_template(docx_path: str) -> FormatTemplate:
         fc.h1_size = h1_size
     if h1_bold is not None:
         fc.h1_bold = bool(h1_bold)
+    if h1_italic is not None:
+        fc.h1_italic = bool(h1_italic)
+    if h1_underline is not None:
+        fc.h1_underline = bool(h1_underline)
+    if h1_color:
+        fc.h1_color = h1_color
     if h2_font:
         fc.h2_font = h2_font
     if h2_size:
         fc.h2_size = h2_size
     if h2_bold is not None:
         fc.h2_bold = bool(h2_bold)
+    if h2_italic is not None:
+        fc.h2_italic = bool(h2_italic)
+    if h2_underline is not None:
+        fc.h2_underline = bool(h2_underline)
+    if h2_color:
+        fc.h2_color = h2_color
     if h3_font:
         fc.h3_font = h3_font
     if h3_size:
         fc.h3_size = h3_size
     if h3_bold is not None:
         fc.h3_bold = bool(h3_bold)
+    if h3_italic is not None:
+        fc.h3_italic = bool(h3_italic)
+    if h3_underline is not None:
+        fc.h3_underline = bool(h3_underline)
+    if h3_color:
+        fc.h3_color = h3_color
     if body_font:
         fc.body_font = body_font
     if body_size:
         fc.body_size = body_size
+    if body_bold is not None:
+        fc.body_bold = bool(body_bold)
+    if body_italic is not None:
+        fc.body_italic = bool(body_italic)
+    if body_underline is not None:
+        fc.body_underline = bool(body_underline)
+    if body_color:
+        fc.body_color = body_color
+    if body_line_spacing is not None:
+        fc.body_line_spacing = float(body_line_spacing)
 
     # 封面五行惯例：period, title, subtitle, org, date
     period = cover_lines[0] if len(cover_lines) > 0 else ""
@@ -605,15 +764,15 @@ class HeadingInfo:
 def _style_is_heading(style_name: str) -> Tuple[bool, Optional[int]]:
     """判断样式名是否为 Word 内置标题样式，返回 (是否标题, 层级)。
 
-    支持 "Heading 1" / "标题 1" / "Heading 2" 等中英文写法。
+    支持 "Heading 1" / "标题 1" / "Heading 2" 等中英文写法（1–9 级）。
     """
     if not style_name:
         return False, None
     s = style_name.strip().lower()
-    for lvl in range(1, 7):
+    for lvl in range(1, 10):
         for pat in (f"heading {lvl}", f"标题 {lvl}", f"标题{lvl}"):
             if s == pat:
-                return True, lvl
+                return True, min(lvl, 6)  # 终版格式最多用到六级
     return False, None
 
 
@@ -721,7 +880,7 @@ def identify_heading(text: str, para: Optional[Paragraph] = None) -> Optional[He
 
     # 综合置信度
     if sid is not None and title:
-        level = sid.count('.') + 1
+        level = min(sid.count('.') + 1, 6)
         if style_hit_level is not None:
             confidence = "high"
             signal = f"{text_signal}+样式(H{style_hit_level})"
@@ -749,8 +908,10 @@ def identify_heading(text: str, para: Optional[Paragraph] = None) -> Optional[He
 
 
 def _level_from_sid(sid: str) -> int:
-    """从 section_id 推断层级：'1' -> 1, '2.1' -> 2, '2.1.1' -> 3"""
-    return sid.count('.') + 1
+    """从 section_id 推断层级：'1'→1, '2.1'→2, '2.1.1'→3, … 最深 6。"""
+    if not sid or sid.startswith("_"):
+        return 1
+    return min(sid.count(".") + 1, 6)
 
 
 # ---------------------------------------------------------------------------
@@ -1246,32 +1407,59 @@ class FontConfig:
     h1_font: str = "黑体"
     h1_size: float = 18.0       # 小二
     h1_bold: bool = True
+    h1_italic: bool = False
+    h1_underline: bool = False
     h1_color: str = "000000"   # 黑色
 
     # 二级标题
     h2_font: str = "黑体"
     h2_size: float = 15.0       # 小三
     h2_bold: bool = True
+    h2_italic: bool = False
+    h2_underline: bool = False
     h2_color: str = "1F3864"   # 深蓝
 
     # 三级标题
     h3_font: str = "宋体"
     h3_size: float = 14.0       # 四号
     h3_bold: bool = True
+    h3_italic: bool = False
+    h3_underline: bool = False
     h3_color: str = "000000"    # 黑色
 
-    # 四级标题（如有）
+    # 四级标题
     h4_font: str = "宋体"
     h4_size: float = 12.0       # 小四
     h4_bold: bool = True
+    h4_italic: bool = False
+    h4_underline: bool = False
     h4_color: str = "000000"
+
+    # 五级标题
+    h5_font: str = "宋体"
+    h5_size: float = 12.0
+    h5_bold: bool = True
+    h5_italic: bool = False
+    h5_underline: bool = False
+    h5_color: str = "000000"
+
+    # 六级标题
+    h6_font: str = "宋体"
+    h6_size: float = 11.0
+    h6_bold: bool = True
+    h6_italic: bool = False
+    h6_underline: bool = False
+    h6_color: str = "000000"
 
     # 正文
     body_font: str = "宋体"
     body_size: float = 12.0      # 小四
     body_bold: bool = False
+    body_italic: bool = False
+    body_underline: bool = False
     body_color: str = "000000"
     body_indent: int = 2        # 首行缩进字符数
+    body_line_spacing: float = 1.5  # 行距倍数
 
 
 def _color_from_hex(hex_str: str) -> RGBColor:
@@ -1316,7 +1504,7 @@ def _apply_font_config(fc: FontConfig):
 # 基础工具函数
 # ---------------------------------------------------------------------------
 
-def _set_run_font(run, name=None, size=None, bold=False, color=None):
+def _set_run_font(run, name=None, size=None, bold=False, color=None, italic=False, underline=False):
     """设置 run 字体。
 
     F13：name/size 默认 None（不再在定义时绑定旧全局，避免 _apply_font_config
@@ -1338,23 +1526,24 @@ def _set_run_font(run, name=None, size=None, bold=False, color=None):
     rfonts.set(qn("w:hAnsi"), name)
     run.font.size = size
     run.font.bold = bool(bold)
+    run.font.italic = bool(italic)
+    run.font.underline = bool(underline)
     if color is not None:
         run.font.color.rgb = color
 
 
 def _apply_run_info(run, ri: RunInfo, fc: FontConfig = None, default_bold: bool = None):
-    """F06/F07：把 RunInfo 的完整格式应用到 run。
+    """把 RunInfo 文本写入 run，版式严格按 FontConfig（模板或手动设置）。
 
-    语义（F07 明确）：
-      - 源 run 显式指定了格式（RunInfo 字段非 None）→ 尊重源格式（保真）
-      - 源 run 未指定（None）→ 用 FontConfig 的 body_bold/body_color 兜底，
-        使 UI 的"正文加粗""正文颜色"控件对未指定格式的正文真正生效
+    版式优先级（模板启用时 FontConfig 来自模板；否则来自 UI 手动设置）：
+      - 字体 / 字号 / 颜色：一律用 FontConfig.body_*（统一终版风格）
+      - 加粗 / 斜体 / 下划线：源 run 显式为 True 时保留强调；否则用 body_* 设定
     default_bold 参数：旧调用方兼容，若显式传入则覆盖 fc.body_bold。
     """
     if fc is None:
         fc = FontConfig()
-    body_font = ri.font_name or fc.body_font
-    body_size = ri.size if ri.size is not None else fc.body_size
+    body_font = fc.body_font
+    body_size = fc.body_size
     run.font.name = body_font
     rpr = run._element.get_or_add_rPr()
     rfonts = rpr.find(qn("w:rFonts"))
@@ -1365,18 +1554,27 @@ def _apply_run_info(run, ri: RunInfo, fc: FontConfig = None, default_bold: bool 
     rfonts.set(qn("w:ascii"), body_font)
     rfonts.set(qn("w:hAnsi"), body_font)
     run.font.size = Pt(body_size)
-    # F07：bold 用源值，未指定时用 default_bold 或 fc.body_bold
-    if ri.bold is not None:
-        run.font.bold = bool(ri.bold)
+    # 加粗：源显式加粗保留强调；否则用 default_bold / body_bold
+    if ri.bold is True:
+        run.font.bold = True
     elif default_bold is not None:
         run.font.bold = bool(default_bold)
     else:
         run.font.bold = bool(fc.body_bold)
-    # italic/underline：源未指定时回退 False（UI 无控件）
-    run.font.italic = bool(ri.italic) if ri.italic is not None else False
-    run.font.underline = bool(ri.underline) if ri.underline is not None else False
-    # F07：color 用源值，未指定时用 fc.body_color（UI"正文颜色"控件生效）
-    color_to_apply = ri.color if ri.color else fc.body_color
+    # 斜体 / 下划线：源显式开启时保留强调；否则用 body 设定
+    if ri.italic is True:
+        run.font.italic = True
+    else:
+        run.font.italic = bool(fc.body_italic)
+    src_under = False
+    if ri.underline is True:
+        src_under = True
+    elif ri.underline not in (None, False, 0):
+        # WD_UNDERLINE 枚举等真值
+        src_under = True
+    run.font.underline = True if src_under else bool(fc.body_underline)
+    # 颜色严格按 FontConfig（模板或手动「正文颜色」）
+    color_to_apply = fc.body_color
     if color_to_apply:
         try:
             run.font.color.rgb = RGBColor.from_string(color_to_apply)
@@ -1825,57 +2023,59 @@ def add_header_footer(doc, header_items: List[str], header_data: Dict[str, str])
 def add_heading(doc, level: int, text: str, fc: FontConfig = None):
     """按指定级别写入标题（统一格式 + 应用 Word 原生 Heading 样式）。
 
-    支持通过 FontConfig 自定义每级标题的字体/字号/加粗/颜色。
-    level 4+ 统一使用 fc.h4_* 参数。
+    支持 1–6 级：章 / 节 / 小节 / 四级 / 五级 / 六级。
     """
     if fc is None:
         fc = FontConfig()
+    try:
+        level = int(level)
+    except (TypeError, ValueError):
+        level = 1
+    level = min(max(level, 1), 6)
 
-    if level == 1:
-        font, size_pt, bold, hex_color = fc.h1_font, fc.h1_size, fc.h1_bold, fc.h1_color
-        style_name = "Heading 1"
-    elif level == 2:
-        font, size_pt, bold, hex_color = fc.h2_font, fc.h2_size, fc.h2_bold, fc.h2_color
-        style_name = "Heading 2"
-    elif level == 3:
-        font, size_pt, bold, hex_color = fc.h3_font, fc.h3_size, fc.h3_bold, fc.h3_color
-        style_name = "Heading 3"
-    else:
-        font, size_pt, bold, hex_color = fc.h4_font, fc.h4_size, fc.h4_bold, fc.h4_color
-        style_name = "Heading 4"
+    _cfg = {
+        1: (fc.h1_font, fc.h1_size, fc.h1_bold, fc.h1_italic, fc.h1_underline, fc.h1_color),
+        2: (fc.h2_font, fc.h2_size, fc.h2_bold, fc.h2_italic, fc.h2_underline, fc.h2_color),
+        3: (fc.h3_font, fc.h3_size, fc.h3_bold, fc.h3_italic, fc.h3_underline, fc.h3_color),
+        4: (fc.h4_font, fc.h4_size, fc.h4_bold, fc.h4_italic, fc.h4_underline, fc.h4_color),
+        5: (fc.h5_font, fc.h5_size, fc.h5_bold, fc.h5_italic, fc.h5_underline, fc.h5_color),
+        6: (fc.h6_font, fc.h6_size, fc.h6_bold, fc.h6_italic, fc.h6_underline, fc.h6_color),
+    }
+    font, size_pt, bold, italic, under, hex_color = _cfg[level]
+    style_name = f"Heading {level}"
 
     color = _color_from_hex(hex_color)
-    p = doc.add_paragraph(style=style_name)
-    p.paragraph_format.space_before = Pt(18 if level == 1 else 12)
-    p.paragraph_format.space_after = Pt(6)
+    try:
+        p = doc.add_paragraph(style=style_name)
+    except KeyError:
+        # 个别模板缺 Heading 4–6 时回退到已 ensure 的样式
+        p = doc.add_paragraph(style="Heading 3" if level >= 3 else f"Heading {level}")
+    p.paragraph_format.space_before = Pt(18 if level == 1 else (12 if level <= 3 else 8))
+    p.paragraph_format.space_after = Pt(6 if level <= 3 else 4)
     p.paragraph_format.keep_with_next = True
     r = p.add_run(text)
-    _set_run_font(r, font, Pt(size_pt), bold=bold, color=color)
+    _set_run_font(r, font, Pt(size_pt), bold=bold, color=color, italic=italic, underline=under)
     return p
 
 
 def add_body_paragraph(doc, block: Block, fc: FontConfig = None):
-    """添加正文段落，保留输入文件中的完整 run 格式，首行缩进2字符。
-
-    F06：用 RunInfo 保留 italic/underline/color/size，而非只保 bold。
-    如果 block.runs 非空，按 run 逐段写入并保留完整格式；
-    否则回退到单 run 全文本。
-    """
+    """添加正文段落，按 FontConfig 统一字体/字号/颜色/缩进/行距。"""
     if fc is None:
         fc = FontConfig()
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(4)
-    p.paragraph_format.line_spacing = 1.5
+    p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
     _set_first_line_indent(p, chars=fc.body_indent, body_size_pt=fc.body_size)
     if block.para_format:
         _apply_para_format(p, block.para_format)
+        # 行距以格式设置为准（模板或手动）
+        p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
 
     if block.runs:
         for ri in block.runs:
             r = p.add_run(ri.text)
             _apply_run_info(r, ri, fc)
     else:
-        # F07：无 run 回退也走 _apply_run_info，使 body_bold/body_color 生效
         r = p.add_run(block.text)
         _apply_run_info(r, RunInfo(text=block.text), fc)
     return p
@@ -1894,7 +2094,7 @@ def add_bullet(doc, block: Block, fc: FontConfig = None):
     indent_chars = block.list_level * 2
     p = doc.add_paragraph(style="List Bullet")
     p.paragraph_format.space_after = Pt(2)
-    p.paragraph_format.line_spacing = 1.4
+    p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
     if indent_chars > 0:
         p.paragraph_format.left_indent = Pt(indent_chars * 12)
     # 应用保留的段落格式（若有）
@@ -2089,11 +2289,12 @@ def add_body_with_xref(doc, block: Block, caption_index: CaptionIndex,
         fc = FontConfig()
     p = doc.add_paragraph()
     p.paragraph_format.space_after = Pt(4)
-    p.paragraph_format.line_spacing = 1.5
+    p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
     _set_first_line_indent(p, chars=fc.body_indent, body_size_pt=fc.body_size)
-    # F06：应用保留的段落格式（覆盖默认）
+    # F06：应用保留的段落格式（覆盖默认），但行距以格式设置为准
     if block.para_format:
         _apply_para_format(p, block.para_format)
+        p.paragraph_format.line_spacing = float(fc.body_line_spacing or 1.5)
 
     for ri in (block.runs if block.runs else [RunInfo(text=block.text)]):
         _add_run_with_xref(p, ri, caption_index,
@@ -2635,6 +2836,8 @@ def aggregate(
     title_overrides: Optional[Dict[str, str]] = None,
     section_overrides: Optional[Dict[str, Dict]] = None,
     section_order: Optional[List[str]] = None,
+    strict_section_order: bool = False,
+    exclude_section_ids: Optional[List[str]] = None,
     format_template: Optional[FormatTemplate] = None,
     format_template_path: Optional[str] = None,
     use_template_titles: Optional[bool] = None,
@@ -2656,6 +2859,8 @@ def aggregate(
     if ft is not None:
         if template is None and ft.specs:
             template = list(ft.specs)
+        # 启用格式模板时：版式（字体/字号/加粗/颜色）严格取自模板；
+        # 仅当调用方未传入 font_config 时用模板；若传入则以其为准（桌面端可保留 body_indent）。
         if font_config is None and ft.font_config is not None:
             font_config = ft.font_config
         if section_order is None and ft.specs:
@@ -2679,9 +2884,13 @@ def aggregate(
 
     if ft is not None:
         log_msg(f"[0/5] 格式模板：{ft.source_path or '(内存)'}")
-        log_msg(f"      模板章节 {len(ft.specs)} 个；字体 "
-                f"H1={fc.h1_font}/{fc.h1_size} H2={fc.h2_font}/{fc.h2_size} "
-                f"Body={fc.body_font}/{fc.body_size}")
+        log_msg(
+            f"      模板章节 {len(ft.specs)} 个；版式严格按模板 "
+            f"H1={fc.h1_font}/{fc.h1_size}/#{fc.h1_color} "
+            f"H2={fc.h2_font}/{fc.h2_size}/#{fc.h2_color} "
+            f"H3={fc.h3_font}/{fc.h3_size}/#{fc.h3_color} "
+            f"Body={fc.body_font}/{fc.body_size}/#{fc.body_color}"
+        )
 
     log_msg(f"[1/5] 扫描输入目录：{input_dir}")
     parsed = parse_input_dir(input_dir)
@@ -2751,7 +2960,7 @@ def aggregate(
         if n_title or n_level:
             log_msg(f"      模板对齐：更新标题 {n_title} 处、层级 {n_level} 处")
 
-    # ---- 用户手动覆盖（预览编辑），可覆盖模板标题 ----
+    # ---- 用户手动覆盖（预览编辑），可覆盖模板标题；支持 create 空标题壳 ----
     if section_overrides or title_overrides:
         unified: Dict[str, Dict] = {}
         if title_overrides:
@@ -2771,13 +2980,48 @@ def aggregate(
                 if ov.get("level") is not None:
                     try:
                         lv = int(ov["level"])
-                        if lv in (1, 2, 3):
+                        if 1 <= lv <= 6:
                             bucket["level"] = lv
                     except (TypeError, ValueError):
                         pass
+                if ov.get("create") or ov.get("empty"):
+                    bucket["create"] = True
         renames = []
+        created_n = 0
         for old_sid, ov in unified.items():
             sec = parsed.get(old_sid)
+            # 预览中「新增子标题」：无正文，仅写入标题
+            if sec is None and ov.get("create"):
+                target_sid = str(ov.get("section_id") or old_sid).strip()
+                if not target_sid or target_sid.startswith("_"):
+                    log_msg(f"      ⚠️ 跳过无效新增章节编号：{target_sid!r}")
+                    continue
+                if target_sid in parsed:
+                    log_msg(f"      ⚠️ 新增章节编号冲突：{target_sid} 已存在，跳过")
+                    continue
+                title = str(ov.get("title") or "未命名").strip() or "未命名"
+                level = int(ov.get("level") or (target_sid.count(".") + 1))
+                if not (1 <= level <= 6):
+                    level = min(6, max(1, target_sid.count(".") + 1))
+                new_sec = Section(
+                    section_id=target_sid,
+                    title=title,
+                    blocks=[],
+                    source_files=["(手动新增)"],
+                    merge_count=1,
+                    level=level,
+                    confidence="high",
+                    source_signal="manual",
+                )
+                if hasattr(parsed, "sections"):
+                    parsed.sections[target_sid] = new_sec
+                else:
+                    parsed[target_sid] = new_sec
+                if old_sid != target_sid:
+                    rename_map[old_sid] = target_sid
+                created_n += 1
+                log_msg(f"      新增空标题：{target_sid}  {title!r}（level={level}，无正文）")
+                continue
             if sec is None:
                 continue
             if "title" in ov and sec.title != ov["title"]:
@@ -2789,6 +3033,8 @@ def aggregate(
             new_sid = ov.get("section_id")
             if new_sid and new_sid != old_sid:
                 renames.append((old_sid, new_sid))
+        if created_n:
+            log_msg(f"      手动新增空标题 {created_n} 个")
         for old_sid, new_sid in renames:
             if new_sid in parsed and new_sid != old_sid:
                 log_msg(f"      ⚠️ 编号覆盖冲突：{old_sid} → {new_sid} 已存在，跳过重命名")
@@ -2806,6 +3052,39 @@ def aggregate(
                 parsed[new_sid] = sec
                 parsed.pop(old_sid, None)
 
+    # ---- 排除章节（预览中删除/隐藏）----
+    _exclude: set = set()
+    if exclude_section_ids:
+        for sid in exclude_section_ids:
+            s = str(sid or "").strip()
+            if not s:
+                continue
+            _exclude.add(s)
+            # 也排除重命名后的目标/源
+            _exclude.add(rename_map.get(s, s))
+        # 反向：rename 源若映射到排除目标
+        for old, new in list(rename_map.items()):
+            if new in _exclude or old in _exclude:
+                _exclude.add(old)
+                _exclude.add(new)
+
+    skipped_blocks = 0
+    if _exclude:
+        for sid in list(_exclude):
+            sec = parsed.get(sid)
+            if sec is None:
+                continue
+            nblk = len(sec.blocks)
+            skipped_blocks += nblk
+            log_msg(f"      排除章节：{sid}  {sec.title!r}（{nblk} 块，不写入终版）")
+            if hasattr(parsed, "sections"):
+                parsed.sections.pop(sid, None)
+            else:
+                parsed.pop(sid, None)
+        if skipped_blocks:
+            log_msg(f"      已排除 {len([s for s in _exclude if s not in parsed])} 个章节，"
+                    f"合计跳过内容块 {skipped_blocks} 个")
+
     # ---- 手动/模板章节顺序 ----
     _user_section_order: Optional[List[str]] = None
     if section_order:
@@ -2813,17 +3092,23 @@ def aggregate(
         seen_o: set = set()
         for sid in section_order:
             final = rename_map.get(sid, sid)
+            if final in _exclude:
+                continue
             if final in parsed and final not in seen_o:
                 mapped.append(final)
                 seen_o.add(final)
-        # 模板外的输入章节追加到末尾
-        for sid in sort_section_ids(parsed, template):
-            if sid not in seen_o:
-                mapped.append(sid)
-                seen_o.add(sid)
+        # 非严格模式：未出现在顺序中的输入章节追加到末尾（桌面预览用严格模式，避免已删章节回流）
+        if not strict_section_order:
+            for sid in sort_section_ids(parsed, template):
+                if sid not in seen_o and sid not in _exclude:
+                    mapped.append(sid)
+                    seen_o.add(sid)
         _user_section_order = mapped
-        log_msg(f"      使用章节顺序：{len(mapped)} 项"
-                f"{'（来自格式模板/手动调序）' if ft or section_order else ''}")
+        log_msg(
+            f"      使用章节顺序：{len(mapped)} 项"
+            f"{'（严格按预览表，不自动补缺）' if strict_section_order else ''}"
+            f"{'（来自格式模板/手动调序）' if ft or section_order else ''}"
+        )
 
     # 合并审计：输入 section 总数 = 各 Section.merge_count 之和；
     # 若大于去重后数量，说明发生了同编号合并，必须显式记录，杜绝静默丢数据。
@@ -2873,11 +3158,12 @@ def aggregate(
 
     if _user_section_order is not None:
         sorted_sids = [s for s in _user_section_order if s in parsed]
-        for s in sorted(parsed.keys(), key=_section_sort_key):
-            if s not in sorted_sids:
-                sorted_sids.append(s)
+        if not strict_section_order:
+            for s in sorted(parsed.keys(), key=_section_sort_key):
+                if s not in sorted_sids and s not in _exclude:
+                    sorted_sids.append(s)
     else:
-        sorted_sids = sorted(parsed.keys(), key=_section_sort_key)
+        sorted_sids = [s for s in sorted(parsed.keys(), key=_section_sort_key) if s not in _exclude]
 
     # F12：缺失章节告警——模板期望但输入中没有的章节，按模板顺序列出供人工补齐
     # （仅告警，不强制阻断，与动态模式哲学兼容）
@@ -2976,6 +3262,9 @@ def aggregate(
     _ensure_style(doc, "Heading 1", base="Normal", font_name=fc.h1_font, size=Pt(fc.h1_size), bold=fc.h1_bold, color=_color_from_hex(fc.h1_color))
     _ensure_style(doc, "Heading 2", base="Normal", font_name=fc.h2_font, size=Pt(fc.h2_size), bold=fc.h2_bold, color=_color_from_hex(fc.h2_color))
     _ensure_style(doc, "Heading 3", base="Normal", font_name=fc.h3_font, size=Pt(fc.h3_size), bold=fc.h3_bold, color=_color_from_hex(fc.h3_color))
+    _ensure_style(doc, "Heading 4", base="Normal", font_name=fc.h4_font, size=Pt(fc.h4_size), bold=fc.h4_bold, color=_color_from_hex(fc.h4_color))
+    _ensure_style(doc, "Heading 5", base="Normal", font_name=fc.h5_font, size=Pt(fc.h5_size), bold=fc.h5_bold, color=_color_from_hex(fc.h5_color))
+    _ensure_style(doc, "Heading 6", base="Normal", font_name=fc.h6_font, size=Pt(fc.h6_size), bold=fc.h6_bold, color=_color_from_hex(fc.h6_color))
 
     header_data = {"title": title, "org": org, "date": date, "period": period}
     add_header_footer(doc, header_items, header_data)
@@ -3072,12 +3361,17 @@ def aggregate(
     os.makedirs(os.path.dirname(os.path.abspath(output_path)) or ".", exist_ok=True)
     doc.save(output_path)
 
-    # 守恒校验：输入有效块数应等于输出已处理块数。
-    # 任何不相等都意味着存在静默丢数据（如旧的重复 section 覆盖），必须显式告警。
+    # 守恒校验：写入块数应等于仍在 parsed 中的输入块
+    # （删除/隐藏章节已在此前 pop，skipped_blocks 仅用于审计）
     if written_blocks != total_input_blocks:
-        log_msg(f"      ⚠️ 守恒校验失败：输入 {total_input_blocks} 块，实际写入 {written_blocks} 块，请排查数据丢失")
+        log_msg(
+            f"      ⚠️ 守恒校验失败：期望写入 {total_input_blocks} 块，"
+            f"实际写入 {written_blocks} 块"
+            f"{f'（另已排除 {skipped_blocks} 块）' if skipped_blocks else ''}，请排查数据丢失"
+        )
     else:
-        log_msg(f"      守恒校验通过：输入/输出块数一致（{written_blocks} 块）")
+        extra = f"（另已排除 {skipped_blocks} 块）" if skipped_blocks else ""
+        log_msg(f"      守恒校验通过：输入/输出块数一致（{written_blocks} 块）{extra}")
 
     # F03：输出包完整性校验——重新打开生成文件，确认 ZIP 部件与内部关系目标有效。
     integrity_ok, integrity_msg = _verify_docx_integrity(output_path)

@@ -1,0 +1,27 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+.venv_build/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# PyInstaller intermediate (keep root dist exe+_internal if tracked)
+工具/build/
+工具/dist/
+工具/.venv_build/
+*.spec.bak
+
+# OS / IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+
+# Local secrets / temp
+*.log
+.insurance-report-*/

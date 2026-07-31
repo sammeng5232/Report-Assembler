@@ -31,6 +31,10 @@ def ui_font_family() -> str:
 
 def default_doc_fonts() -> Dict[str, str]:
     """报告正文/标题默认字体（写入 DOCX 的 eastAsia 字体名）。"""
+    en_fonts = [
+        "Arial", "Times New Roman", "Calibri", "Cambria", "Georgia",
+        "Garamond", "Verdana", "Tahoma", "Helvetica", "Courier New",
+    ]
     if is_macos():
         # macOS 常见中文字体；Word/Pages 均可识别
         return {
@@ -41,14 +45,21 @@ def default_doc_fonts() -> Dict[str, str]:
                 "PingFang SC", "Heiti SC", "Songti SC", "STSong",
                 "STHeiti", "Hiragino Sans GB", "Arial Unicode MS",
                 "微软雅黑", "宋体", "黑体", "楷体", "仿宋",
-            ],
+            ] + en_fonts,
         }
     if is_windows():
         return {
             "ui": "微软雅黑",
             "heading": "微软雅黑",
             "body": "宋体",
-            "options": ["微软雅黑", "宋体", "黑体", "楷体", "仿宋", "PingFang SC", "Songti SC"],
+            "options": [
+                "微软雅黑", "宋体", "黑体", "楷体", "仿宋",
+                "华文细黑", "华文中宋", "华文楷体", "华文宋体", "华文仿宋",
+                "方正小标宋简体", "等线", "新宋体",
+            ] + en_fonts + [
+                "Segoe UI", "Trebuchet MS", "Consolas",
+                "PingFang SC", "Songti SC", "Heiti SC",
+            ],
         }
     return {
         "ui": "Noto Sans CJK SC",
@@ -57,7 +68,7 @@ def default_doc_fonts() -> Dict[str, str]:
         "options": [
             "Noto Sans CJK SC", "Noto Serif CJK SC", "WenQuanYi Micro Hei",
             "微软雅黑", "宋体", "黑体",
-        ],
+        ] + en_fonts,
     }
 
 
@@ -143,6 +154,58 @@ def copy_selected_files(files: Sequence[str], target_dir: str) -> Tuple[int, Lis
     return len(records), conflicts, records
 
 
+# 层级名称（1=章 … 6=六级）；预览/编辑/新增子标题共用
+LAYER_NAMES = ("章", "节", "小节", "四级", "五级", "六级")
+MAX_HEADING_LEVEL = 6
+
+
+def level_to_layer(level: int, sid: str = "") -> str:
+    """数字层级 → 中文层级名。"""
+    if sid == "_preamble":
+        return "前言"
+    try:
+        lv = int(level)
+    except (TypeError, ValueError):
+        lv = 0
+    if 1 <= lv <= len(LAYER_NAMES):
+        return LAYER_NAMES[lv - 1]
+    if sid and sid != "_preamble":
+        return level_to_layer(min(sid.count(".") + 1, MAX_HEADING_LEVEL), "")
+    return "节"
+
+
+def layer_to_level(layer: str, sid: str = "") -> int:
+    """中文层级名 / 数字 → 1..MAX_HEADING_LEVEL。"""
+    layer = (layer or "").strip()
+    if layer in ("章", "一级", "1", "前言"):
+        return 1
+    if layer in ("节", "二级", "2"):
+        return 2
+    if layer in ("小节", "三级", "3"):
+        return 3
+    if layer in ("四级", "4", "条", "细节"):
+        return 4
+    if layer in ("五级", "5", "款"):
+        return 5
+    if layer in ("六级", "6", "项"):
+        return 6
+    try:
+        lv = int(layer)
+        if 1 <= lv <= MAX_HEADING_LEVEL:
+            return lv
+    except ValueError:
+        pass
+    if sid and sid != "_preamble":
+        return min(max(sid.count(".") + 1, 1), MAX_HEADING_LEVEL)
+    return 2
+
+
+def next_layer_name(layer: str) -> str:
+    """比当前层级深一级；已是最深则仍返回最深。"""
+    lv = layer_to_level(layer)
+    return level_to_layer(min(lv + 1, MAX_HEADING_LEVEL))
+
+
 def build_section_preview_rows(parsed) -> List[dict]:
     from report_aggregator import sort_section_ids
 
@@ -154,8 +217,10 @@ def build_section_preview_rows(parsed) -> List[dict]:
         )
         if sid == "_preamble":
             layer = "前言"
+            level = 1
         else:
-            layer = "章" if level == 1 else ("节" if level == 2 else "小节")
+            level = min(max(int(level or 1), 1), MAX_HEADING_LEVEL)
+            layer = level_to_layer(level, sid)
         if getattr(sec, "title_conflict", False):
             status = "标题冲突"
         elif getattr(sec, "merge_count", 1) > 1:
@@ -168,8 +233,6 @@ def build_section_preview_rows(parsed) -> List[dict]:
             status = "正常"
         conf_map = {"high": "高", "medium": "中", "low": "低"}
         conf = conf_map.get(getattr(sec, "confidence", ""), getattr(sec, "confidence", ""))
-        if level not in (1, 2, 3):
-            level = 1 if layer == "章" else 2 if layer == "节" else 3
         rows.append({
             "order": order, "section_id": sid, "title": sec.title, "layer": layer,
             "level": level, "block_count": len(sec.blocks),
@@ -177,20 +240,3 @@ def build_section_preview_rows(parsed) -> List[dict]:
             "confidence": conf, "status": status,
         })
     return rows
-
-
-def layer_to_level(layer: str, sid: str = "") -> int:
-    layer = (layer or "").strip()
-    if layer in ("章", "一级", "1", "前言"):
-        return 1
-    if layer in ("节", "二级", "2"):
-        return 2
-    if layer in ("小节", "三级", "3"):
-        return 3
-    try:
-        lv = int(layer)
-        if lv in (1, 2, 3):
-            return lv
-    except ValueError:
-        pass
-    return min(sid.count(".") + 1, 3) if sid else 2
